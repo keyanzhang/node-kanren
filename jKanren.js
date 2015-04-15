@@ -1,10 +1,12 @@
+// µKanren: https://github.com/jasonhemann/microKanren
+// Copyright (C) 2013 Jason Hemann and Daniel P. Friedman
+
 'use strict';
 
 var _ = require('lodash');
 
 // Utils
-// ConsCell data structure (actually a linked list).
-// http://en.wikipedia.org/wiki/Cons
+// ConsCell data structure
 function ConsCell(x) {
   this._car = x; // a value, undefined, or another ConsCell
   this._cdr = null;
@@ -27,18 +29,11 @@ ConsCell.prototype.getCdr = function() {
 };
 
 function writer(inp) {
-  // TODO: convert quotes back to "'", ",", and "`"
   var n = inp;
   var result = "";
-
-  var quoteDict = {
-    "quasiquote": "`",
-    "unquote": ",",
-    "quote": "'"
-  };
-
+  
   if (!(n instanceof ConsCell)) {
-    if (n === Null) {
+    if (isNull(n)) {
       result += "()";
     }
     else {
@@ -64,7 +59,7 @@ function writer(inp) {
   while (n) {
     result += writer(n._car);
 
-    if (n._cdr === Null) {
+    if (isNull(n._cdr)) {
       break;
     }
     else if (!(n._cdr instanceof ConsCell)) {
@@ -88,6 +83,10 @@ var Null = {
     return '()';
   }
 };
+
+function isNull(x) {
+  return x === Null;
+}
 
 function cons(a, d) {
   var result = new ConsCell(a);
@@ -119,6 +118,81 @@ function list() {
 
 function isPair(x) {
   return x instanceof ConsCell;
+}
+
+function length(x) {
+  if (_.isArray(x)) {
+    return x.length;
+  }
+  else if (isNull(x)) {
+    return 0;
+  }
+  else if (x instanceof ConsCell) {
+    var result = 0;
+    while (!isNull(x)) {
+      result++;
+      x = x.getCdr();
+    }
+    return result;
+  }
+  else {
+    throw new TypeError('length: ' + x + ' has no length');
+  }
+}
+
+function map(ls, f) {
+  if (_.isArray(ls)) {
+    return _.map(ls, f);
+  }
+
+  function mapConsCell(x, f) {
+    if (isNull(x)) {
+      return Null;
+    }
+
+    return cons(f(car(x)), mapConsCell(cdr(x), f));
+  }
+
+  return mapConsCell(ls, f);
+}
+
+function reverse(x) {
+  var result;
+  if (_.isArray(x)) {
+    result = [];
+    for (var i = x.length - 1; i >= 0; i--) {
+      result.push(x[i]);
+    }
+    return result;
+  }
+  else if (isNull(x)) {
+    return Null;
+  }
+  else if (isPair(x)) {
+    result = Null;
+    while (!isNull(x)) {
+      result = cons(car(x), result);
+      x = cdr(x);
+    }
+    return result;
+  }
+  else {
+    throw new TypeError('reverse: ' + x + ' can\'t be reversed');
+  }
+}
+
+function apply(ctx, f, ls) {
+  if (_.isArray(ls)) {
+    return f.apply(ctx, ls);
+  }
+  else {
+    var args = [];
+    while (!isNull(ls)) {
+      args.push(car(ls));
+      ls = cdr(ls);
+    }
+    return f.apply(ctx, args);
+  }
 }
 
 function and() {
@@ -162,7 +236,7 @@ function equalVar(x1, x2) {
 }
 
 function assp(lss, p) { // the predicate is the 2nd parameter here
-  if (lss === Null) {
+  if (isNull(lss)) {
     return false;
   }
   else if (p(car(car(lss)))) {
@@ -194,7 +268,7 @@ function equiv(u, v) { // ==
   return function(s_c) {
     var s = unify(u, v, car(s_c));
 
-    if (s) { // @? !== false
+    if (s !== false) { // @? !== false
       return unit(cons(s, cdr(s_c)));
     }
     else {
@@ -242,7 +316,7 @@ function call_fresh(f) {
 }
 
 function mplus($1, $2) {
-  if ($1 === Null) {
+  if (isNull($1)) {
     return $2;
   }
   else if (_.isFunction($1)) {
@@ -256,7 +330,7 @@ function mplus($1, $2) {
 }
 
 function bind($, g) {
-  if ($ === Null) {
+  if (isNull($)) {
     return mzero;
   }
   else if (_.isFunction($)) {
@@ -295,6 +369,101 @@ var a_and_b = conj(call_fresh(function(a) {
 //   return equiv(q, 5);
 // }))(emptyState));
 
+// wrappers
+
+function call_goal(g) {
+  return g(emptyState);
+}
+
+function pull($) {
+  if (_.isFunction($)) {
+    return pull($());
+  }
+  else {
+    return $;
+  }
+}
+
+function takeAll($) {
+  var $ = pull($);
+
+  if (isNull($)) {
+    return Null;
+  }
+  else {
+    return cons(car($), takeAll(cdr($)));
+  }
+}
+
+function take(n, $) {
+  if (n === 0) {
+    return Null;
+  }
+  else {
+    var $ = pull($);
+    if (isNull($)) {
+      return Null;
+    }
+    else {
+      return cons(car($), take(n - 1, cdr($)));
+    }
+  }
+}
+
+function walk$(v, s) {
+  var v = walk(v, s);
+
+  if (isVar(v)) {
+    return v;
+  }
+  else if (isPair(v)) {
+    return cons(walk$(car(v), s), walk$(cdr(v), s));
+  }
+  else {
+    return v;
+  }
+}
+
+function reify1st(s_c) {
+  var v = walk$(kVar(0), car(s_c));
+
+  return walk$(v, reifyS(v, Null));
+}
+
+function reifyS(v, s) {
+  var v = walk(v, s);
+
+  if (isVar(v)) {
+    var n = reifyName(length(s));
+    return cons(cons(v, n), s);
+  }
+  else if (isPair(v)) {
+    return reifyS(cdr(v), reifyS(car(v), s));
+  }
+  else {
+    return s;
+  }
+}
+
+function reifyName(n) {
+  // return n; // @TODO: string->symbol
+  return '_.' + n;
+}
+
+function fresh_nf(n, f) {
+  function app_f_v$(n, v$) {
+    if (n === 0) {
+      return apply(this, f, reverse(v$));
+    }
+    else {
+      return call_fresh(function(x) {
+        return app_f_v$(n - 1, cons(x, v$));
+      });
+    }
+  }
+
+  return app_f_v$(n, Null);
+}
 
 
 // console.log('end of jKanren.js');

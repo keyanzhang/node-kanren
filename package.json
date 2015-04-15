@@ -3,9 +3,6 @@
   "version": "0.0.1",
   "description": "",
   "main": "jKanren.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
   "repository": {
     "type": "git",
     "url": "https://github.com/keyanzhang/node-kanren"
@@ -20,6 +17,7 @@
   },
   "homepage": "https://github.com/keyanzhang/node-kanren",
   "dependencies": {
-    "lodash": "latest"
+    "lodash": "latest",
+    "sweet.js": "latest"
   }
 }
